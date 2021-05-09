@@ -19,6 +19,11 @@ enum PokemonAPI {
             .request
         return agent.run(request!)
     }
+
+    static func fetchDetail(id: Int) -> AnyPublisher<PokemonDetailDTO, Error> {
+        let request = URLComponents(url: base.appendingPathComponent("/\(id)"), resolvingAgainstBaseURL: true)?.request
+        return agent.run(request!)
+    }
 }
 
 private extension URLComponents {
@@ -26,7 +31,7 @@ private extension URLComponents {
         var copy = self
         copy.queryItems = [
             URLQueryItem(name: "offset", value: String(offset)),
-            URLQueryItem(name: "limit", value: String(20))
+            URLQueryItem(name: "limit", value: String(75))
         ]
         return copy
     }
@@ -42,29 +47,6 @@ struct PokemonDTO: Codable {
     let name: String
     let url: String?
 }
-//
-//struct MovieDetailDTO: Codable {
-//    let id: Int
-//    let title: String
-//    let overview: String?
-//    let poster_path: String?
-//    let vote_average: Double?
-//    let genres: [GenreDTO]
-//    let release_date: String?
-//    let runtime: Int?
-//    let spoken_languages: [LanguageDTO]
-//
-//    var poster: URL? { poster_path.map { MoviesAPI.imageBase.appendingPathComponent($0) } }
-//
-//    struct GenreDTO: Codable {
-//        let id: Int
-//        let name: String
-//    }
-//
-//    struct LanguageDTO: Codable {
-//        let name: String
-//    }
-//}
 
 struct PokemonPageDTO<T: Codable>: Codable {
     let count: Int?
@@ -73,3 +55,23 @@ struct PokemonPageDTO<T: Codable>: Codable {
     let results: [T]
 }
 
+struct PokemonDetailDTO: Codable {
+    let sprites: SpritesDTO?
+
+    struct SpritesDTO: Codable {
+        let front_default: String?
+        let other: SpritesOtherDTO?
+
+        struct SpritesOtherDTO: Codable {
+            let officialArtwork: SpritesOfficialArtworkDTO?
+
+            enum CodingKeys: String, CodingKey {
+                case officialArtwork = "official-artwork"
+            }
+
+            struct SpritesOfficialArtworkDTO: Codable {
+                let front_default: String?
+            }
+        }
+    }
+}

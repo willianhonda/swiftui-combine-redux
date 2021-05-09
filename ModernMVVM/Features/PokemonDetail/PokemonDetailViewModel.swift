@@ -1,22 +1,24 @@
 //
-//  MovieListViewModel.swift
-//  ModernMVVMList
+//  PokemonDetailViewModel.swift
+//  ModernMVVM
 //
-//  Created by Vadim Bulavin on 3/17/20.
-//  Copyright © 2020 Vadym Bulavin. All rights reserved.
+//  Created by Willian Honda on 09/05/21.
+//  Copyright © 2021 Vadym Bulavin. All rights reserved.
 //
 
 import Foundation
 import Combine
 
-final class MoviesListViewModel: ObservableObject {
-    @Published private(set) var state = State.idle
-    
+final class PokemonDetailViewModel: ObservableObject {
+    @Published private(set) var state: State
+
     private var bag = Set<AnyCancellable>()
-    
+
     private let input = PassthroughSubject<Event, Never>()
-    
-    init() {
+
+    init(pokemonID: Int) {
+        state = .idle(pokemonID)
+
         Publishers.system(
             initial: state,
             reduce: Self.reduce,
@@ -29,11 +31,7 @@ final class MoviesListViewModel: ObservableObject {
         .assign(to: \.state, on: self)
         .store(in: &bag)
     }
-    
-    deinit {
-        bag.removeAll()
-    }
-    
+
     func send(event: Event) {
         input.send(event)
     }
@@ -41,51 +39,47 @@ final class MoviesListViewModel: ObservableObject {
 
 // MARK: - Inner Types
 
-extension MoviesListViewModel {
+extension PokemonDetailViewModel {
     enum State {
-        case idle
-        case loading
-        case loaded([ListItem])
+        case idle(Int)
+        case loading(Int)
+        case loaded(PokemonDetail)
         case error(Error)
     }
-    
+
     enum Event {
         case onAppear
-        case onMoviesLoaded([ListItem])
-        case onFailedToLoadMovies(Error)
+        case onLoaded(PokemonDetail)
+        case onFailedToLoad(Error)
     }
-    
-    struct ListItem: Identifiable {
-        let id: Int
-        let title: String
-        let poster: URL?
+
+    struct PokemonDetail {
+        let officialArtwork: String?
         
-        init(movie: MovieDTO) {
-            id = movie.id
-            title = movie.title
-            poster = movie.poster
+        init(pokemon: PokemonDetailDTO) {
+            officialArtwork = pokemon.sprites?.other?.officialArtwork?.front_default
         }
     }
 }
 
 // MARK: - State Machine
 
-extension MoviesListViewModel {
+extension PokemonDetailViewModel {
     static func reduce(_ state: State, _ event: Event) -> State {
         switch state {
-        case .idle:
+        case .idle(let id):
             switch event {
             case .onAppear:
-                return .loading
+                return .loading(id)
             default:
                 return state
             }
         case .loading:
             switch event {
-            case .onFailedToLoadMovies(let error):
+            case .onFailedToLoad(let error):
                 return .error(error)
-            case .onMoviesLoaded(let movies):
-                return .loaded(movies)
+            case .onLoaded(let movie):
+                return .loaded(movie)
             default:
                 return state
             }
@@ -95,20 +89,21 @@ extension MoviesListViewModel {
             return state
         }
     }
-    
+
     static func whenLoading() -> Feedback<State, Event> {
         Feedback { (state: State) -> AnyPublisher<Event, Never> in
-            guard case .loading = state else { return Empty().eraseToAnyPublisher() }
-            
-            return MoviesAPI.trending()
-                .map { $0.results.map(ListItem.init) }
-                .map(Event.onMoviesLoaded)
-                .catch { Just(Event.onFailedToLoadMovies($0)) }
+            guard case .loading(let id) = state else { return Empty().eraseToAnyPublisher() }
+            return PokemonAPI.fetchDetail(id: id)
+                .map(PokemonDetail.init)
+                .map(Event.onLoaded)
+                .catch { Just(Event.onFailedToLoad($0)) }
                 .eraseToAnyPublisher()
         }
     }
-    
+
     static func userInput(input: AnyPublisher<Event, Never>) -> Feedback<State, Event> {
-        Feedback { _ in input }
+        Feedback(run: { _ in
+            return input
+        })
     }
 }

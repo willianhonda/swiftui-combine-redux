@@ -10,7 +10,7 @@ import Foundation
 import Combine
 
 final class PokemonListViewModel: ObservableObject {
-    @Published private(set) var state = State.idle
+    @Published private(set) var state = State(viewState: .idle)
 
     private var bag = Set<AnyCancellable>()
 
@@ -43,29 +43,37 @@ final class PokemonListViewModel: ObservableObject {
 // MARK: - Inner Types
 
 extension PokemonListViewModel {
-    enum State {
+    struct State {
+        var dataSource: [PokemonListItem] = []
+        var shouldPaginate: Bool = false
+        var offset: Int = 0
+        var viewState: ViewState
+    }
+
+    enum ViewState {
         case idle
         case loading
-        case loaded([PokemonListItem])
-        case paginating(offset: Int)
+        case loaded
         case error(Error)
     }
 
     enum Event {
         case onAppear
         case onPokemonsLoaded([PokemonListItem])
-//        case onNewPokemonsLoaded([PokemonListItem])
         case fetchNextPokemons(offset: Int)
         case onFailedToLoadPokemon(Error)
     }
 
     struct PokemonListItem: Identifiable, Hashable {
-        let id: String
+        let id: Int
         let name: String
         let url: URL?
 
         init(pokemon: PokemonDTO) {
-            id = pokemon.name
+            id = Int(pokemon.url!
+                        .replacingOccurrences(of: "https://pokeapi.co/api/v2/pokemon/", with: "")
+                        .replacingOccurrences(of: "/", with: "")
+            )!
             name = pokemon.name
             if let pokemonUrl = pokemon.url {
                 url = URL(string: pokemonUrl)
@@ -80,38 +88,45 @@ extension PokemonListViewModel {
 
 extension PokemonListViewModel {
     static func reduce(_ state: State, _ event: Event) -> State {
-        switch state {
+        var newState = state
+        switch state.viewState {
         case .idle:
             switch event {
             case .onAppear:
-                return .loading
+                newState.viewState = .loading
             default:
-                return state
+                break
             }
-        case .loading, .paginating:
+        case .loading:
             switch event {
             case let .onFailedToLoadPokemon(error):
-                return .error(error)
+                newState.viewState = .error(error)
             case let .onPokemonsLoaded(pokemons):
-                return .loaded(pokemons)
+                newState.dataSource.append(contentsOf: pokemons)
+                newState.viewState = .loaded
             default:
-                return state
+                break
             }
         case .loaded:
             switch event {
             case let .fetchNextPokemons(offset):
-                return .paginating(offset: offset)
+                newState.shouldPaginate = true
+                newState.offset = offset
+            case let .onPokemonsLoaded(pokemons):
+                newState.shouldPaginate = false
+                newState.dataSource.append(contentsOf: pokemons)
             default:
-                return state
+                break
             }
         case .error:
-            return state
+            break
         }
+        return newState
     }
 
     static func whenLoading() -> Feedback<State, Event> {
         Feedback { (state: State) -> AnyPublisher<Event, Never> in
-            guard case .loading = state else { return Empty().eraseToAnyPublisher() }
+            guard case .loading = state.viewState else { return Empty().eraseToAnyPublisher() }
 
             return PokemonAPI.fetch()
                 .map { $0.results.map(PokemonListItem.init) }
@@ -123,9 +138,9 @@ extension PokemonListViewModel {
 
     static func whenPaginating() -> Feedback<State, Event> {
         Feedback { (state: State) -> AnyPublisher<Event, Never> in
-            guard case let .paginating(offset) = state else { return Empty().eraseToAnyPublisher() }
+            guard state.shouldPaginate else { return Empty().eraseToAnyPublisher() }
 
-            return PokemonAPI.fetch(offset: offset)
+            return PokemonAPI.fetch(offset: state.offset)
                 .map { $0.results.map(PokemonListItem.init) }
                 .map(Event.onPokemonsLoaded)
                 .catch { Just(Event.onFailedToLoadPokemon($0)) }
